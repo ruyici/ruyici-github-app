@@ -1,0 +1,22 @@
+name: ruyici RISC-V demo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  demo:
+    runs-on: ubuntu-24.04-riscv
+    steps:
+      - name: Confirm native RISC-V
+        run: |
+          arch=$(uname -m)
+          echo "arch=$arch"
+          test "$arch" = riscv64
+      - name: CPU info
+        run: nproc && uname -a
+      - name: Docker availability
+        run: docker info --format '{{.ServerVersion}}'
+      - name: Python availability
+        run: python3 -V

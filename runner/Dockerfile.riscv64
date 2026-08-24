@@ -1,0 +1,34 @@
+# ruyici runner image for linux/riscv64.
+#
+# Build this on a real RISC-V host (or a native riscv64 CI runner), never
+# with QEMU emulation. The GitHub Actions runner for RISC-V is the
+# Cloud-V fork that RISE uses:
+#   https://github.com/Cloud-V-10xE/github-runner-riscv
+# Set RUNNER_DIST_URL to the tarball URL of the current release (the value
+# below is a placeholder to be updated before first build).
+ARG RUNNER_VERSION=1.0.0
+ARG RUNNER_DIST_URL=https://github.com/Cloud-V-10xE/github-runner-riscv/releases/download/${RUNNER_VERSION}/github-runner-riscv-${RUNNER_VERSION}.tar.gz
+
+FROM riscv64/ubuntu:24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash curl git jq python3 python3-pip sudo tini \
+    docker.io containerd docker-buildx-plugin docker-compose-plugin \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd -m -u 1001 runner \
+    && usermod -aG sudo runner \
+    && echo "runner ALL=(ALL) NOPASSWD:ALL" >/etc/sudoers.d/runner
+
+COPY entrypoint.sh /usr/local/bin/ruyici-entrypoint.sh
+RUN chmod +x /usr/local/bin/ruyici-entrypoint.sh
+
+RUN mkdir -p /home/runner \
+    && curl -fsSL "$RUNNER_DIST_URL" -o /tmp/runner.tgz \
+    && tar -xz -C /home/runner -f /tmp/runner.tgz \
+    && rm /tmp/runner.tgz
+
+ENV RUNNER_HOME=/home/runner
+USER runner
+WORKDIR /home/runner
+ENTRYPOINT ["/usr/local/bin/ruyici-entrypoint.sh"]

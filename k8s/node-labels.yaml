@@ -1,0 +1,11 @@
+# Label the RISC-V nodes that should host ruyici runner pods. The scheduler's
+# nodeSelector (ruyici.dev/board=<pool>) targets the correct hardware.
+#
+#   kubectl label node <node-name> ruyici.dev/board=scaleway-em-rv1
+#
+# One runner per node is guaranteed by the podAntiAffinity rule embedded in
+# every runner pod (topologyKey: kubernetes.io/hostname), so a separate
+# device plugin is not required for the MVP.
+apiVersion: v1
+kind: List
+items: []
