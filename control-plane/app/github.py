@@ -1,5 +1,6 @@
 import logging
 import time
+from datetime import datetime
 
 import httpx
 import jwt
@@ -29,7 +30,7 @@ class GitHubAPI:
     def _jwt(self, ttl=540):
         now = int(time.time())
         return jwt.encode(
-            {"iat": now, "exp": now + ttl, "iss": self.cfg.gh_app_id},
+            {"iat": now, "exp": now + ttl, "iss": str(self.cfg.gh_app_id)},
             self.cfg.gh_private_key_pem,
             algorithm="RS256",
         )
@@ -50,13 +51,30 @@ class GitHubAPI:
         now = time.time()
         if self._install_token and now < self._token_expires - 60:
             return self._install_token
-        data = await self._request(
+        installation = await self._request(
             "GET",
             f"/orgs/{self.cfg.gh_org}/installation",
             headers={"Authorization": f"Bearer {self._jwt()}"},
         )
-        self._install_token = data["token"]
-        self._token_expires = now + 3600
+        data = await self._request(
+            "POST",
+            f"/app/installations/{installation['id']}/access_tokens",
+            headers={"Authorization": f"Bearer {self._jwt()}"},
+        )
+        token = (data or {}).get("token")
+        if not token:
+            if self._install_token:
+                logger.warning("access_tokens returned no token; reusing cached token")
+                return self._install_token
+            raise RuntimeError(f"access_tokens returned no token: {data}")
+        self._install_token = token
+        expires_at = data.get("expires_at", "")
+        try:
+            self._token_expires = datetime.fromisoformat(
+                expires_at.replace("Z", "+00:00")
+            ).timestamp()
+        except ValueError:
+            self._token_expires = now + 3600
         return self._install_token
 
     async def _auth_headers(self):
