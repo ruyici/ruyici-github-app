@@ -17,6 +17,7 @@ ARG RUNNER_DIST_URL
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash curl git jq python3 python3-pip sudo tini \
+    libicu74 libicu-dev \
     docker.io containerd  docker-buildx docker-compose-v2 \
     && rm -rf /var/lib/apt/lists/*
 
