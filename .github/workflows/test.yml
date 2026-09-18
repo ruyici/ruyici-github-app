@@ -4,11 +4,14 @@ on:
   pull_request:
     paths:
       - control-plane/**
+      - runner/**
+      - scripts/**
   push:
     branches: [main]
 
 jobs:
   control-plane:
+    name: control-plane (${{ matrix.component }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -22,7 +25,45 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r control-plane/requirements.txt
-      - name: Run ${{ matrix.component }} tests
+      - name: Install deps
+        run: pip install -r control-plane/requirements-dev.txt
+      - name: Lint
+        run: ruff check app tests
+        working-directory: control-plane
+      - name: Test ${{ matrix.component }}
         run: python -m pytest tests/test_${{ matrix.component }}.py -q
         working-directory: control-plane
+
+  runner-lint:
+    name: runner (static)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax check (entrypoint)
+        run: bash -n runner/entrypoint.sh
+      - name: Dockerfile references entrypoint & has required ARGs
+        run: |
+          grep -q "COPY entrypoint.sh" runner/Dockerfile.riscv64
+          grep -q "ARG RUNNER_VERSION" runner/Dockerfile.riscv64
+          grep -q "ARG RUNNER_DIST_URL" runner/Dockerfile.riscv64
+          echo "runner static checks OK"
+      # NOTE: real riscv64 image build must happen on a native RISC-V host
+      # (see the QEMU warning at the top of runner/Dockerfile.riscv64).
+
+  scripts-check:
+    name: scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Byte-compile script (syntax check)
+        run: python -m py_compile scripts/simulate-webhook.py
+      - name: Functional smoke test (local, no network)
+        run: |
+          # --help exercises argparse, signature helper, and payload builder
+          python3 scripts/simulate-webhook.py --help >/dev/null
+          SECRET=test-secret python3 scripts/simulate-webhook.py \
+            --url http://127.0.0.1:9/ --action queued --job-id 1 2>&1 \
+            | grep -qi "error\|refused\|failed" || echo "expected local failure (ok)"

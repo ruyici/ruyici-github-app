@@ -1,5 +1,6 @@
 import httpx
 import pytest
+
 from app.github import GitHubAPI
 
 INSTALL_ID = 162232685
@@ -120,7 +121,6 @@ def test_jwt_iss_is_string(cfg):
     Exercises the real GitHubAPI._jwt code path: the old code passed an int
     and PyJWT raised TypeError: Issuer (iss) must be a string.
     """
-    import time
 
     import jwt as pyjwt
     from cryptography.hazmat.primitives import serialization
