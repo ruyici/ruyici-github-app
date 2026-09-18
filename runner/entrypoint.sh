@@ -6,11 +6,14 @@ RUNNER_WAIT_FOR_DOCKER_IN_SECONDS="${RUNNER_WAIT_FOR_DOCKER_IN_SECONDS:-60}"
 
 : "${RUNNER_JITCONFIG:?RUNNER_JITCONFIG must be set}"
 
+LOG_DIR="${LOG_DIR:-/home/runner/logs}"
+mkdir -p "$LOG_DIR"
+
 echo "[ruyici] starting containerd"
-containerd >/var/log/ruyici-containerd.log 2>&1 &
+containerd >"$LOG_DIR/ruyici-containerd.log" 2>&1 &
 
 echo "[ruyici] starting dockerd"
-dockerd --mtu=1450 >/var/log/ruyici-dockerd.log 2>&1 &
+dockerd --mtu=1450 >"$LOG_DIR/ruyici-dockerd.log" 2>&1 &
 
 docker_ready=0
 for _ in $(seq 1 "$RUNNER_WAIT_FOR_DOCKER_IN_SECONDS"); do
