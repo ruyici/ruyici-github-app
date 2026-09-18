@@ -8,13 +8,21 @@ on:
     branches: [main]
 
 jobs:
-  pytest:
+  control-plane:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component:
+          - github
+          - k8s
+          - scheduler
+          - webhook
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -r control-plane/requirements.txt
-      - run: python -m pytest -q
+      - name: Run ${{ matrix.component }} tests
+        run: python -m pytest tests/test_${{ matrix.component }}.py -q
         working-directory: control-plane
