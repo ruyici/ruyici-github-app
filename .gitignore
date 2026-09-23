@@ -4,3 +4,11 @@ __pycache__/
 *.egg-info/
 .env
 *.pem
+
+# ruyici WireGuard fleet secrets & generated state (never commit)
+wg/state.json
+wg/*.key
+wg/*.psk
+*.wg0.conf
+out/*.conf
+RUIYICI_WG_STATE_DIR/

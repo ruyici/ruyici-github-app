@@ -1,0 +1,33 @@
+[Unit]
+Description=ruyici GitHub App control plane (FastAPI webhook + scheduler)
+# Only start once the network and (optionally) WireGuard are up.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Placeholders substituted by scripts/setup-control-plane.sh:
+#   __USER__       = the real login user
+#   __REPO_DIR__   = control-plane checkout dir
+#   __UVICORN__    = abs path to the venv uvicorn
+User=__USER__
+Group=__USER__
+WorkingDirectory=__REPO_DIR__/control-plane
+
+# EnvironmentFile supplies secrets / runtime values and is kept out of git
+# (written by scripts/setup-control-plane.sh as /etc/ruyici/control-plane.env):
+#   RUIYICI_GH_APP_ID
+#   RUIYICI_GH_APP_PRIVATE_KEY_FILE
+#   RUIYICI_GH_WEBHOOK_SECRET
+#   RUIYICI_GH_ORG
+#   RUIYICI_RUNNER_LABEL
+#   RUIYICI_RUNNER_IMAGE
+#   RUIYICI_KUBECONFIG
+EnvironmentFile=/etc/ruyici/control-plane.env
+
+ExecStart=__UVICORN__ app.main:app --host 0.0.0.0 --port 8080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

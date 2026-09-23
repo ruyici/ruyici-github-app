@@ -1,0 +1,26 @@
+[Unit]
+Description=Lightweight Kubernetes - k3s agent (ruyici riscv64 runner node)
+# Wait for the WireGuard tunnel so the agent registers with its WG IP.
+After=network-online.target wg-quick@wg0.service
+Wants=network-online.target wg-quick@wg0.service
+
+[Service]
+Type=notify
+# Placeholders are substituted by scripts/install-node.sh from wg.py's state:
+#   __K3S_SERVER_URL__  e.g. https://10.100.0.3:6443
+#   __K3S_TOKEN_FILE__  path to the cluster token (e.g. /etc/rancher/k3s/agent-token)
+#   __NODE_WG_IP__      this board's WireGuard /24 address
+#   __NODE_NAME__       this board's name (must match the WG peer name)
+ExecStart=/usr/local/bin/k3s agent \
+    --server __K3S_SERVER_URL__ \
+    --token-file __K3S_TOKEN_FILE__ \
+    --node-ip __NODE_WG_IP__ \
+    --node-name __NODE_NAME__
+KillMode=process
+Delegate=yes
+LimitNOFILE=1048576
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

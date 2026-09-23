@@ -164,3 +164,91 @@ automatically.
 - Personal-account App variant (repository Administration permission).
 - Device plugin for resource-aware exclusive allocation.
 - Stage/prod image promotion like RISE (`-staging` / `-prod` tags with approval).
+
+## 11. Onboard a new RISC-V board over the fleet
+
+`scripts/wg.py` provisions hub-and-spoke WireGuard for a fleet of riscv64
+boards, then `scripts/install-node.sh` joins each board as a k3s agent. Adding
+a peer is **non-disruptive** (`wg set`, never `wg-quick down/up` on a live
+network), so existing runners/jobs are untouched.
+
+Network layout (example, replace all values for your fleet — do **not** commit
+real hostnames, WG IPs, or ports):
+
+| Role | Host (example) | WG IP (example) | Notes |
+| --- | --- | --- | --- |
+| WG hub (routing only) | `<wg-hub>` | `10.100.0.1` | ListenPort `51820` |
+| k3s server + control plane | `<k3s-server>` | `10.100.0.3` | runs main.py + k3s server on `:6443` |
+| Runner board (k3s agent) | `<board>` | `10.100.0.2` | joins `https://10.100.0.3:6443` |
+
+`scripts/wg.py` generates `/etc/wireguard/wg0.conf` with the configured
+`--hub-ip`, `--port`, and per-peer `AllowedIPs` (the board's `/24` address plus
+an optional `--lan` route), so you never hard-code the fleet here.
+
+### Add a board (hub side, non-disruptive)
+
+```bash
+sudo scripts/wg.py network init --hub-ip 10.100.0.1 --port 51820   # once only
+sudo scripts/wg.py peer add --name k3-17 \
+     --ip 10.100.0.4 --board scaleway-em-rv1 --provider scaleway \
+     --lan 192.168.1.0/24 \
+     --endpoint <hub-public-endpoint> \
+     --emit /tmp/k3-17.wg0.conf
+sudo scripts/wg.py peer list
+```
+
+`--ip` is optional (auto-allocates the next free `/24`). `--lan` routes that
+board's own LAN CIDR through the tunnel (e.g. so pod Docker builds can reach a
+local registry), matching the typical `192.168.*` route pattern.
+
+Verification:
+
+```bash
+sudo scripts/wg.py verify          # wg show + ping each 10.100.0.x
+```
+
+### Join the board (on the board, as root)
+
+```bash
+sudo scripts/install-node.sh \
+     --name k3-17 \
+     --wg-conf /tmp/k3-17.wg0.conf \
+     --wg-ip 10.100.0.4 \
+     --k3s-server https://10.100.0.3:6443 \
+     --k3s-token-file /etc/rancher/k3s/agent-token \
+     --unit-src systemd/k3s-agent.service
+```
+
+This installs `/etc/wireguard/wg0.conf`, enables `wg-quick@wg0`, renders and
+starts the `k3s-agent` unit (waiting on WireGuard, `Restart=on-failure`), and
+verifies.
+
+### Label the node for the scheduler
+
+```bash
+sudo scripts/wg.py label-node --name k3-17 --label ruyici.dev/board=scaleway-em-rv1
+kubectl get nodes --show-labels | grep ruyici.dev/board
+```
+
+### Add >10 boards with one loop
+
+```bash
+for name in k3-{17..30}; do
+  sudo scripts/wg.py peer add --name "$name" --board scaleway-em-rv1 --emit "/tmp/$name.wg0.conf"
+  scp "/tmp/$name.wg0.conf" "$name:/tmp/"
+  ssh "root@$name" "sudo /path/to/scripts//install-node.sh --name $name \
+     --wg-conf /tmp/$name.wg0.conf \
+     --wg-ip <that-board-ip> \
+     --k3s-server https://10.100.0.3:6443 \
+     --k3s-token-file /etc/rancher/k3s/agent-token"
+done
+```
+
+Secrets are kept out of git: hub/peer private keys, PSKs, and
+`wg/state.json`/`*.conf` are 0600 on the hub and ignored (`.gitignore`).
+
+### Board↔board & LAN routing
+
+Spoke `AllowedIPs = 10.100.0.0/24` lets boards reach each other through the
+hub (needed for k3s node-to-node and `kubectl logs`). A board can additionally
+route its own LAN via `--lan` (e.g. `192.168.1.0/24`).

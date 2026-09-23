@@ -7,7 +7,10 @@ on:
       - runner/**
       - scripts/**
   push:
-    branches: [main]
+    paths:
+      - control-plane/**
+      - runner/**
+      - scripts/**
 
 jobs:
   control-plane:
@@ -58,12 +61,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Byte-compile script (syntax check)
-        run: python -m py_compile scripts/simulate-webhook.py
+      - name: Install deps
+        run: pip install -r control-plane/requirements-dev.txt
+      - name: Byte-compile scripts (syntax check)
+        run: python -m py_compile scripts/simulate-webhook.py scripts/wg.py
+      - name: Shell syntax check (install-node + setup-control-plane)
+        run: bash -n scripts/install-node.sh scripts/00-setup-control-plane.sh
+      - name: wg.py unit tests
+        run: python -m pytest scripts/tests/test_wg.py -q
       - name: Functional smoke test (local, no network)
         run: |
           # --help exercises argparse, signature helper, and payload builder
           python3 scripts/simulate-webhook.py --help >/dev/null
+          python3 scripts/wg.py --help >/dev/null
           SECRET=test-secret python3 scripts/simulate-webhook.py \
             --url http://127.0.0.1:9/ --action queued --job-id 1 2>&1 \
             | grep -qi "error\|refused\|failed" || echo "expected local failure (ok)"
