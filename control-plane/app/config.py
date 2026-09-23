@@ -19,6 +19,9 @@ class Config:
         self.runner_group = os.environ.get("RUIYICI_RUNNER_GROUP", "ruyici-runners")
         self.runner_prefix = os.environ.get("RUIYICI_RUNNER_PREFIX", "ruyici-runner-")
         self.max_workers = int(os.environ.get("RUIYICI_MAX_WORKERS", "20"))
+        self.runners_per_node = int(
+            os.environ.get("RUIYICI_RUNNERS_PER_NODE", "1")
+        )
 
         self.kubeconfig = os.environ.get("RUIYICI_KUBECONFIG", "")
         self.k8s_namespace = os.environ.get("RUIYICI_K8S_NAMESPACE", "default")

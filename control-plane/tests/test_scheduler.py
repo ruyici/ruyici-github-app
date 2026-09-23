@@ -13,6 +13,7 @@ async def make_svc(cfg):
     svc.gh.list_runners.return_value = []
     svc.k8s = AsyncMock()
     svc.k8s.get_pod.return_value = None
+    svc.k8s.list_labelled_nodes = AsyncMock(return_value=["node-a", "node-b"])
     return svc
 
 

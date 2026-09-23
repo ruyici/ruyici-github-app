@@ -186,6 +186,10 @@ class RunnerService:
             j for j in self.state.jobs.values() if j["status"] in ("pending", "running")
         ]
         active_jobs.sort(key=lambda j: (j["created_at"], j["id"]))
+        # Capacity ceiling = available labelled nodes * runners per node. With
+        # per-node packing the default (1) mirrors RISE (one runner per node).
+        nodes = await self.k8s.list_labelled_nodes()
+        capacity = len(nodes) * self.cfg.runners_per_node
         for j in active_jobs:
             matching_demand = sum(
                 1
@@ -206,6 +210,13 @@ class RunnerService:
             )
             if active_workers >= self.cfg.max_workers:
                 logger.info("max_workers cap %s reached", self.cfg.max_workers)
+                break
+            if capacity and active_workers >= capacity:
+                logger.info(
+                    "node capacity exhausted (%s runners across %s nodes)",
+                    capacity,
+                    len(nodes),
+                )
                 break
             name = f"{self.cfg.runner_prefix}{j['id']}"
             if name in self.state.workers:

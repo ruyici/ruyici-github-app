@@ -57,9 +57,16 @@ def infer_kubeconfig_path():
 
 
 def runner_pod_spec(cfg, name, jit_config):
-    """Pod spec for one ephemeral runner, mirroring the RISE provisioning model."""
+    """Pod spec for one ephemeral runner, mirroring the RISE provisioning model.
+
+    When cfg.runners_per_node > 1 the per-node anti-affinity is relaxed to a
+    soft preference: the scheduler will pack several runners onto strong nodes
+    (e.g. a many-core riscv64 box used for concurrent PyTorch shards) rather
+    than forcing exactly one runner per node. With the default of 1 the hard
+    per-hostname anti-affinity is kept (one runner per node, RISE style).
+    """
     board_key, board_value = cfg.board_label.split("=", 1)
-    return {
+    spec = {
         "apiVersion": "v1",
         "kind": "Pod",
         "metadata": {
@@ -68,17 +75,39 @@ def runner_pod_spec(cfg, name, jit_config):
         },
         "spec": {
             "nodeSelector": {board_key: board_value},
-            "affinity": {
-                "podAntiAffinity": {
-                    "requiredDuringSchedulingIgnoredDuringExecution": [
-                        {
-                            "labelSelector": {"matchLabels": {"app": cfg.app_label}},
-                            "topologyKey": "kubernetes.io/hostname",
-                        }
-                    ]
-                }
-            },
+            "affinity": {},
             "hostNetwork": True,
+        },
+    }
+    if cfg.runners_per_node <= 1:
+        spec["spec"]["affinity"]["podAntiAffinity"] = {
+            "requiredDuringSchedulingIgnoredDuringExecution": [
+                {
+                    "labelSelector": {
+                        "matchLabels": {"app": cfg.app_label, board_key: board_value}
+                    },
+                    "topologyKey": "kubernetes.io/hostname",
+                }
+            ]
+        }
+    else:
+        # Soft anti-affinity: prefer spreading but allow packing when demand
+        # exceeds the number of nodes. weight in 1..100.
+        spec["spec"]["affinity"]["podAntiAffinity"] = {
+            "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                    "weight": 100,
+                    "podAffinityTerm": {
+                        "labelSelector": {
+                            "matchLabels": {"app": cfg.app_label, board_key: board_value}
+                        },
+                        "topologyKey": "kubernetes.io/hostname",
+                    },
+                }
+            ]
+        }
+    spec["spec"].update(
+        {
             "restartPolicy": "Never",
             "securityContext": {"privileged": True},
             "containers": [
@@ -92,8 +121,9 @@ def runner_pod_spec(cfg, name, jit_config):
                     "securityContext": {"privileged": True},
                 }
             ],
-        },
-    }
+        }
+    )
+    return spec
 
 
 class KubernetesAPI:
@@ -158,3 +188,32 @@ class KubernetesAPI:
         return await self._request(
             "DELETE", f"/api/v1/namespaces/{self.cfg.k8s_namespace}/pods/{name}"
         )
+
+    async def list_labelled_nodes(self):
+        """Return names of Ready nodes matching the configured board label.
+
+        Used to size concurrent runner capacity: with per-node packing disabled
+        (default) capacity == len(nodes); otherwise capacity == len(nodes) *
+        runners_per_node. A failure to list nodes returns [] so the scheduler
+        falls back to max_workers only.
+        """
+        board_key, board_value = self.cfg.board_label.split("=", 1)
+        try:
+            data = await self._request(
+                "GET",
+                "/api/v1/nodes",
+                headers={},
+            )
+        except Exception:
+            logger.exception("failed to list nodes; assuming none available")
+            return []
+        nodes = []
+        for n in data.get("items", []):
+            labels = n.get("metadata", {}).get("labels", {})
+            if labels.get(board_key) != board_value:
+                continue
+            for cond in n.get("status", {}).get("conditions", []):
+                if cond.get("type") == "Ready" and cond.get("status") == "True":
+                    nodes.append(n["metadata"]["name"])
+                    break
+        return nodes
